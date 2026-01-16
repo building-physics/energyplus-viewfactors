@@ -6,7 +6,11 @@ from sys import platform
 from tkinter import Tk, PhotoImage, LabelFrame, Entry, StringVar, Menu, DISABLED, Frame, Label, NSEW, E, VERTICAL, \
     SUNKEN, S, LEFT, BOTH, messagebox, END, BooleanVar, NORMAL, RIGHT, EW, NS, filedialog, \
     ALL, Scrollbar, SINGLE, Variable, HORIZONTAL
-from tkinter.ttk import Frame, LabelFrame, Combobox, PanedWindow as ttkPanedWindow, OptionMenu
+from tkinter.ttk import Frame, LabelFrame, Checkbutton, Combobox, PanedWindow as ttkPanedWindow, OptionMenu
+if system() == 'Darwin':
+    from tkmacosx import Button
+else:
+    from tkinter.ttk import Button
 from pathlib import Path
 from .__about__ import __version__
 import importlib.resources
@@ -56,8 +60,8 @@ class EnergyPlusViewFactors(Tk):
         #self._open_welcome()
 
         # Bind keys and focus events
-        self.bind('<Key>', self.handle_keypress)
-        self.bind("<FocusIn>", self.handle_focus_in)
+        #self.bind('<Key>', self.handle_keypress)
+        #self.bind("<FocusIn>", self.handle_focus_in)
 
     def handle_keypress(self, event) -> None:
         pass
@@ -66,17 +70,30 @@ class EnergyPlusViewFactors(Tk):
         pass
 
     def gui(self):
+        self.file_entry_chars = 80
         self.top_menu()
-        self.frame = Frame(self, padding=(3, 3, 12, 12))
-        self.frame.grid(column=0, row=0, sticky=NSEW)
-        self.file_inputs()
+        self.main = Frame(self, padding=(3, 3, 12, 12))
+        self.main.grid(column=0, row=0, sticky=NSEW)
+        
+        # Set up the iternal frames
+        self.file_entry()
+        self.settings_input()
 
-        height = 500
-        width = 1000
-        x = 128
-        y = 128
+        # Initial coordination between the various parts
+        self.update_create_objects()
+        self.update_save_intermediates()
 
-        self.wm_geometry(f"{width}x{height}+{x}+{y}")
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        self.main.columnconfigure(0, weight=1)
+        self.main.rowconfigure(1, weight=1)
+
+        #height = 500
+        #width = 1000
+        #x = 128
+        #y = 128
+
+        #self.wm_geometry(f"{width}x{height}+{x}+{y}")
 
     def top_menu(self):
         menubar = Menu(self)
@@ -87,42 +104,72 @@ class EnergyPlusViewFactors(Tk):
         menu.add_command(label="Quit", command=self.window_close)
         menubar.add_cascade(label="File", menu=menu)
 
-        # Settings menu
-        #menu= Menu(menubar, tearoff=False)
-        #menu_settings.add_command(label="Workflow Directories", command=self._open_workflow_dir_dialog)
-        #self._tk_var_keep_dialogs_open = BooleanVar(value=True)
-        #menu.add_checkbutton(
-        #    label="Keep Output Dialog Open", onvalue=True, offvalue=False, variable=self._tk_var_keep_dialogs_open
-        #)
-
-        #def _update_keep_dialog_open(*_):
-        #    """Called whenever the checkbox is checked, updates configuration value"""
-        #    self.conf.keep_dialog_open = self._tk_var_keep_dialogs_open.get()
-
-        #self._tk_var_keep_dialogs_open.trace('w', _update_keep_dialog_open)
-        #menu_settings.add_command(label="Viewers...", command=self._open_viewers_dialog)
-        #menubar.add_cascade(label="Settings", menu=menu)
-
+        # Help menu
         menu = Menu(menubar, tearoff=False)
-        #menu_help.add_command(label="EnergyPlus-Launch Documentation", command=self._open_documentation)
+        #menu.add_command(label="Documentation...", command=self.open_documentation)
         menu.add_command(label="About...", command=self.about_dialog)
         menubar.add_cascade(label="Help", menu=menu)
 
         self.config(menu=menubar)
 
-    def file_inputs(self):
-        files = LabelFrame(self.frame, text='Files')
+    def file_entry(self):
+        files = LabelFrame(self.main, text='Files')
         files.grid(column=0, row=0, sticky=NSEW)
 
         Label(files, text='IDF/epJSON').grid(column=0, row=0, sticky=EW)
-        self.input_file = Entry(files)
+        self.input_file = Entry(files, width=self.file_entry_chars)
         self.input_file.grid(column=1, row=0, sticky=EW)
+        Button(files, text='Browse').grid(column=2, row=0, sticky=EW)
 
-        #Label(files, text='Output').grid(column=0, row=1)
-        #self.output_file = Entry(files)
-        #self.output_file.grid(column=1, row=1)
-        #self.columnconfigure(0, weight=1)
-        #self.rowconfigure(0, weight=1)
+        Label(files, text='View3D Output').grid(column=0, row=1, sticky=EW)
+        self.output_file = Entry(files, width=self.file_entry_chars)
+        self.output_file.grid(column=1, row=1, sticky=EW)
+        Button(files, text='Browse').grid(column=2, row=1, sticky=EW)
+
+        Label(files, text='Object Output').grid(column=0, row=2, sticky=EW)
+        self.object_output_file = Entry(files, width=self.file_entry_chars)
+        self.object_output_file.grid(column=1, row=2, sticky=EW)
+        Button(files, text='Browse').grid(column=2, row=2, sticky=EW)
+
+        files.columnconfigure(1, weight=1)
+    
+    def settings_input(self):
+        settings = LabelFrame(self.main, text='Settings')
+        settings.grid(column=0, row=1, sticky=NSEW)
+
+        self.run_view3d = BooleanVar()
+        self.run_view3d.set(False)
+        Checkbutton(settings, text='Run View3D', variable=self.run_view3d).grid(column=0, row=0, sticky=EW)
+
+        self.create_objects = BooleanVar()
+        self.create_objects.set(False)
+        Checkbutton(settings, text='Create EnergyPlus objects', variable=self.create_objects,
+                    command=self.update_create_objects).grid(column=0, row=1, sticky=EW)
+        
+        self.add_objects = BooleanVar()
+        self.add_objects.set(False)
+        Checkbutton(settings, text='Add EnergyPlus objects to IDF/epJSON', variable=self.add_objects).grid(column=0, row=2, sticky=EW)
+
+        self.save_intermediates = BooleanVar()
+        self.save_intermediates.set(True)
+        Checkbutton(settings, text='Save intermediate results', variable=self.save_intermediates,
+                    command=self.update_save_intermediates).grid(column=0, row=3, sticky=EW)
+
+        settings.columnconfigure(0, weight=1)
+
+    def update_create_objects(self):
+        if not self.create_objects.get():
+            self.object_output_file.config(state='disabled')
+        else:
+            if self.save_intermediates.get():
+                self.object_output_file.config(state='normal')
+
+    def update_save_intermediates(self):
+        if not self.save_intermediates.get():
+            self.output_file.config(state='disabled')
+            self.object_output_file.config(state='disabled')
+        else:
+            self.output_file.config(state='normal')
 
     def about_dialog(self):
         messagebox.showinfo('About', message = f'This is the {self.title()}, version {__version__}.')
