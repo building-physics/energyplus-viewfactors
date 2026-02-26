@@ -28,6 +28,8 @@ classifiers = [
 ]
 dependencies = [
   "click",
+  "pathvalidate",
+  "tkmacos ; platform_system == \"Darwin\"",
 ]
 
 [project.urls]

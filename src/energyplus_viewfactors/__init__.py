@@ -2,3 +2,4 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 from .interface import EnergyPlusViewFactors
+from .engine import ViewFactorEngine

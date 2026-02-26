@@ -3,17 +3,38 @@
 # SPDX-License-Identifier: BSD-3-Clause
 from platform import system
 from sys import platform
-from tkinter import Tk, PhotoImage, LabelFrame, Entry, StringVar, Menu, DISABLED, Frame, Label, NSEW, E, VERTICAL, \
+from tkinter import Tk, PhotoImage, Entry, StringVar, Menu, DISABLED, Label, NSEW, E, VERTICAL, \
     SUNKEN, S, LEFT, BOTH, messagebox, END, BooleanVar, NORMAL, RIGHT, EW, NS, filedialog, \
-    ALL, Scrollbar, SINGLE, Variable, HORIZONTAL
+    ALL, Scrollbar, SINGLE, Variable, HORIZONTAL, Listbox, ACTIVE
 from tkinter.ttk import Frame, LabelFrame, Checkbutton, Combobox, PanedWindow as ttkPanedWindow, OptionMenu
+from tkinter.filedialog import askopenfilename, asksaveasfilename
+from tkinter.simpledialog import Dialog
 if system() == 'Darwin':
-    from tkmacosx import Button
+    from tkmacosx import Button #pyright: ignore
 else:
     from tkinter.ttk import Button
 from pathlib import Path
 from .__about__ import __version__
 import importlib.resources
+import os
+import json
+
+class ZoneSelection(Dialog):
+    def __init__(self, parent, zones, title = None):
+         self.zones = zones
+         self.selection = []
+         super().__init__(parent, title=title)
+    def body(self, master):
+        super().body(master)
+        self.listbox = Listbox(self, selectmode='extended')
+        label = Label(self, text="Zones") 
+        for i, name in enumerate(self.zones):
+            self.listbox.insert(i+1, name)
+        label.pack()
+        self.listbox.pack()
+        return self
+    def apply(self):
+        self.selected = [self.listbox.get(idx) for idx in self.listbox.curselection()]
 
 class EnergyPlusViewFactors(Tk):
 
@@ -75,9 +96,10 @@ class EnergyPlusViewFactors(Tk):
         self.main = Frame(self, padding=(3, 3, 12, 12))
         self.main.grid(column=0, row=0, sticky=NSEW)
         
-        # Set up the iternal frames
+        # Set up the internal frames
         self.file_entry()
         self.settings_input()
+        self.calculate_interface()
 
         # Initial coordination between the various parts
         self.update_create_objects()
@@ -116,20 +138,41 @@ class EnergyPlusViewFactors(Tk):
         files = LabelFrame(self.main, text='Files')
         files.grid(column=0, row=0, sticky=NSEW)
 
+        def get_file_input():
+            filename = askopenfilename(title='Select input file', filetypes=[('IDF', '*.idf'), ('epJSON', '*.epJSON')])
+            if filename:
+                self.input_file.delete(0, END)
+                self.input_file.insert(0, filename)
+
         Label(files, text='IDF/epJSON').grid(column=0, row=0, sticky=EW)
         self.input_file = Entry(files, width=self.file_entry_chars)
         self.input_file.grid(column=1, row=0, sticky=EW)
-        Button(files, text='Browse').grid(column=2, row=0, sticky=EW)
+        Button(files, text='Browse', command=get_file_input).grid(column=2, row=0, sticky=EW)
+
+        def set_output():
+            if not self.save_intermediates.get():
+                return
+            filename = asksaveasfilename(title='Select View3D output file', filetypes=[('text', '*.txt')])
+            if filename:
+                self.output_file.delete(0, END)
+                self.output_file.insert(0, filename)
 
         Label(files, text='View3D Output').grid(column=0, row=1, sticky=EW)
         self.output_file = Entry(files, width=self.file_entry_chars)
         self.output_file.grid(column=1, row=1, sticky=EW)
-        Button(files, text='Browse').grid(column=2, row=1, sticky=EW)
+        Button(files, text='Browse', command=set_output).grid(column=2, row=1, sticky=EW)
+
+        def set_object_output():
+            if self.save_intermediates.get() and self.create_objects.get():
+                filename = asksaveasfilename(title='Select View3D output file', filetypes=[('text', '*.txt')])
+                if filename:
+                    self.output_file.delete(0, END)
+                    self.output_file.insert(0, filename)
 
         Label(files, text='Object Output').grid(column=0, row=2, sticky=EW)
         self.object_output_file = Entry(files, width=self.file_entry_chars)
         self.object_output_file.grid(column=1, row=2, sticky=EW)
-        Button(files, text='Browse').grid(column=2, row=2, sticky=EW)
+        Button(files, text='Browse', command=set_object_output).grid(column=2, row=2, sticky=EW)
 
         files.columnconfigure(1, weight=1)
     
@@ -156,6 +199,31 @@ class EnergyPlusViewFactors(Tk):
                     command=self.update_save_intermediates).grid(column=0, row=3, sticky=EW)
 
         settings.columnconfigure(0, weight=1)
+
+    def calculate_interface(self):
+        #frame = Frame(self.main)
+        #frame.grid(column=0, row=2, sticky=NSEW)
+        Button(self.main, text='Calculate', command=self.calculate).grid(column=0, row=2, sticky=EW)
+
+        self.columnconfigure(0, weight=1)
+
+    def calculate(self):
+        # Check for sufficient input
+        input_file = self.input_file.get().strip()
+        if not input_file:
+            messagebox.showerror('Error', message='Please specify an input file to proceed.')
+        else:
+            if not os.path.exists(input_file):
+                messagebox.showerror('Error', message=f'Failed to find input file "{input_file}".')
+            else:
+                with open(input_file, 'r') as fp:
+                    data = json.load(fp)
+                    zones = list(data.get('Zone', {}).keys())
+                if not zones:
+                    messagebox.showerror('Error', message=f'Input file "{input_file}" contains no zones.')
+                else:
+                    selector = ZoneSelection(self, zones)
+                    print(selector.selected)
 
     def update_create_objects(self):
         if not self.create_objects.get():
