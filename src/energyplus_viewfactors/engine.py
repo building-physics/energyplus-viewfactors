@@ -19,12 +19,12 @@ class ViewFactorEngine:
 
     Parameters
     ----------
-    number:
-        The Exodus II side number.
-    i,j,k:
-        The origin of the side set.
-    ni,nj,nkL
-        The extents of the side set. One of these should be 1.
+    obj:
+        EnergyPlus input data in dictionary form.
+    fp:
+        A file pointer (or equivalent) to JSON-formatted EnergyPlus input data.
+    filename:
+        The name of a file containing JSON-formatted EnergyPlus input data.
     """
     def __init__(self, obj:dict|None=None, fp:TextIO|None=None, filename:str|None=None):
         self.data = {}
@@ -48,7 +48,7 @@ class ViewFactorEngine:
             if filename is not None:
                 raise BadInputFile(f'Input file "{filename}" does not have a "GlobalGeometryRules" object and is not a valid EnergyPlus input file.')
             else:
-                raise BadInputFile(f'Input data does not have a "GlobalGeometryRules" object and is not valid EnergyPlus input.')
+                raise BadInputFile('Input data does not have a "GlobalGeometryRules" object and is not valid EnergyPlus input.')
         glob_geom = next(iter(glob_geom.values()))
 
         try:
@@ -57,7 +57,7 @@ class ViewFactorEngine:
             if filename is not None:
                 raise BadInputFile(f'Input file "{filename}" has a "GlobalGeometryRules" object that does not have "vertex_entry_direction" entry.')
             else:
-                raise BadInputFile(f'Input data does not have a "GlobalGeometryRules" object that does not have "vertex_entry_direction" entry.')
+                raise BadInputFile('Input data does not have a "GlobalGeometryRules" object that does not have "vertex_entry_direction" entry.')
 
         self.zones = {}
         try:

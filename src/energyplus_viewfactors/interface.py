@@ -15,6 +15,8 @@ else:
     from tkinter.ttk import Button
 from pathlib import Path
 from .__about__ import __version__
+from .engine import ViewFactorEngine
+from .util import managed_directory
 import importlib.resources
 import os
 import json
@@ -47,6 +49,7 @@ class EnergyPlusViewFactors(Tk):
         self.title(title)
         if called_from_ep_cli:
             self.option_add('*Dialog.msg.font', 'Helvetica 12')
+        self.called_from_ep_cli = called_from_ep_cli
         # Load the icon
         if system() == 'Windows':
             import ctypes
@@ -139,12 +142,12 @@ class EnergyPlusViewFactors(Tk):
         files.grid(column=0, row=0, sticky=NSEW)
 
         def get_file_input():
-            filename = askopenfilename(title='Select input file', filetypes=[('IDF', '*.idf'), ('epJSON', '*.epJSON')])
+            filename = askopenfilename(title='Select input file', filetypes=[('epJSON', '*.epJSON')])
             if filename:
                 self.input_file.delete(0, END)
                 self.input_file.insert(0, filename)
 
-        Label(files, text='IDF/epJSON').grid(column=0, row=0, sticky=EW)
+        Label(files, text='epJSON').grid(column=0, row=0, sticky=EW)
         self.input_file = Entry(files, width=self.file_entry_chars)
         self.input_file.grid(column=1, row=0, sticky=EW)
         Button(files, text='Browse', command=get_file_input).grid(column=2, row=0, sticky=EW)
@@ -152,22 +155,28 @@ class EnergyPlusViewFactors(Tk):
         def set_output():
             if not self.save_intermediates.get():
                 return
-            filename = asksaveasfilename(title='Select View3D output file', filetypes=[('text', '*.txt')])
-            if filename:
-                self.output_file.delete(0, END)
-                self.output_file.insert(0, filename)
+            directory = filedialog.askdirectory(parent=self,
+                                                    initialdir=os.getcwd(), 
+                                                title='Select a directory for View3D output')
+            if directory:
+                self.output_dir.delete(0, END)
+                self.output_dir.insert(0, directory)
+            #filename = asksaveasfilename(title='Select View3D output file', filetypes=[('text', '*.txt')])
+            #if filename:
+            #    self.output_file.delete(0, END)
+            #    self.output_file.insert(0, filename)
 
         Label(files, text='View3D Output').grid(column=0, row=1, sticky=EW)
-        self.output_file = Entry(files, width=self.file_entry_chars)
-        self.output_file.grid(column=1, row=1, sticky=EW)
+        self.output_dir = Entry(files, width=self.file_entry_chars)
+        self.output_dir.grid(column=1, row=1, sticky=EW)
         Button(files, text='Browse', command=set_output).grid(column=2, row=1, sticky=EW)
 
         def set_object_output():
             if self.save_intermediates.get() and self.create_objects.get():
-                filename = asksaveasfilename(title='Select View3D output file', filetypes=[('text', '*.txt')])
+                filename = asksaveasfilename(title='Select View3D directory', filetypes=[('text', '*.txt')])
                 if filename:
-                    self.output_file.delete(0, END)
-                    self.output_file.insert(0, filename)
+                    self.object_output_file.delete(0, END)
+                    self.object_output_file.insert(0, filename)
 
         Label(files, text='Object Output').grid(column=0, row=2, sticky=EW)
         self.object_output_file = Entry(files, width=self.file_entry_chars)
@@ -191,11 +200,11 @@ class EnergyPlusViewFactors(Tk):
         
         self.add_objects = BooleanVar()
         self.add_objects.set(False)
-        Checkbutton(settings, text='Add EnergyPlus objects to IDF/epJSON', variable=self.add_objects).grid(column=0, row=2, sticky=EW)
+        Checkbutton(settings, text='Add EnergyPlus objects to epJSON', variable=self.add_objects).grid(column=0, row=2, sticky=EW)
 
         self.save_intermediates = BooleanVar()
         self.save_intermediates.set(True)
-        Checkbutton(settings, text='Save intermediate results', variable=self.save_intermediates,
+        Checkbutton(settings, text='Save intermediate files', variable=self.save_intermediates,
                     command=self.update_save_intermediates).grid(column=0, row=3, sticky=EW)
 
         settings.columnconfigure(0, weight=1)
@@ -215,15 +224,29 @@ class EnergyPlusViewFactors(Tk):
         else:
             if not os.path.exists(input_file):
                 messagebox.showerror('Error', message=f'Failed to find input file "{input_file}".')
-            else:
-                with open(input_file, 'r') as fp:
-                    data = json.load(fp)
-                    zones = list(data.get('Zone', {}).keys())
-                if not zones:
-                    messagebox.showerror('Error', message=f'Input file "{input_file}" contains no zones.')
-                else:
-                    selector = ZoneSelection(self, zones)
-                    print(selector.selected)
+                return
+            with open(input_file, 'r') as fp:
+                data = json.load(fp)
+                zones = list(data.get('Zone', {}).keys())
+            if not zones:
+                messagebox.showerror('Error', message=f'Input file "{input_file}" contains no zones.')
+                return
+        output_dir = None
+        if self.save_intermediates.get():
+            output_dir = self.output_dir.get().strip()
+            if not output_dir:
+                messagebox.showerror('Error', message='Please specify a View3D output directory.')
+                return
+            elif not os.path.exists(output_dir):
+                messagebox.showerror('Error', message=f'View3D output directory "{output_dir}" does not exist.')
+                return
+        # Do the work
+        with managed_directory(output_dir) as dir:
+            selector = ZoneSelection(self, zones)
+            print(selector.selected)
+            zones = selector.selected
+            engine = ViewFactorEngine(data)
+            engine.extract(dir, zones)
 
     def update_create_objects(self):
         if not self.create_objects.get():
@@ -234,10 +257,10 @@ class EnergyPlusViewFactors(Tk):
 
     def update_save_intermediates(self):
         if not self.save_intermediates.get():
-            self.output_file.config(state='disabled')
-            self.object_output_file.config(state='disabled')
+            self.output_dir.config(state='disabled')
+            #self.object_output_file.config(state='disabled')
         else:
-            self.output_file.config(state='normal')
+            self.output_dir.config(state='normal')
 
     def about_dialog(self):
         messagebox.showinfo('About', message = f'This is the {self.title()}, version {__version__}.')
