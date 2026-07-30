@@ -24,7 +24,7 @@ import json
 class ZoneSelection(Dialog):
     def __init__(self, parent, zones, title = None):
          self.zones = zones
-         self.selection = []
+         self.selected = []
          super().__init__(parent, title=title)
     def body(self, master):
         super().body(master)
@@ -34,13 +34,14 @@ class ZoneSelection(Dialog):
             self.listbox.insert(i+1, name)
         label.pack()
         self.listbox.pack()
-        return self
+        return self.listbox
     def apply(self):
         self.selected = [self.listbox.get(idx) for idx in self.listbox.curselection()]
 
 class EnergyPlusViewFactors(Tk):
 
-    def name(self):
+    @staticmethod
+    def name():
         return 'EnergyPlusViewFactors'
 
     def __init__(self, called_from_ep_cli:bool=False, title:str='EnergyPlus View Factor Calculator',
@@ -221,13 +222,18 @@ class EnergyPlusViewFactors(Tk):
         input_file = self.input_file.get().strip()
         if not input_file:
             messagebox.showerror('Error', message='Please specify an input file to proceed.')
+            return
         else:
-            if not os.path.exists(input_file):
+            if not os.path.isfile(input_file):
                 messagebox.showerror('Error', message=f'Failed to find input file "{input_file}".')
                 return
-            with open(input_file, 'r') as fp:
-                data = json.load(fp)
-                zones = list(data.get('Zone', {}).keys())
+            try:
+                with open(input_file, 'r') as fp:
+                    data = json.load(fp)
+                    zones = list(data.get('Zone', {}).keys())
+            except (OSError, json.JSONDecodeError) as error:
+                messagebox.showerror('Error', message=f'Failed to read input file: {error}')
+                return
             if not zones:
                 messagebox.showerror('Error', message=f'Input file "{input_file}" contains no zones.')
                 return
@@ -237,16 +243,18 @@ class EnergyPlusViewFactors(Tk):
             if not output_dir:
                 messagebox.showerror('Error', message='Please specify a View3D output directory.')
                 return
-            elif not os.path.exists(output_dir):
+            elif not os.path.isdir(output_dir):
                 messagebox.showerror('Error', message=f'View3D output directory "{output_dir}" does not exist.')
                 return
         # Do the work
         with managed_directory(output_dir) as dir:
-            selector = ZoneSelection(self, zones)
-            print(selector.selected)
+            selector = ZoneSelection(self, zones, title='Select zones')
+            if not selector.selected:
+                return
             zones = selector.selected
             engine = ViewFactorEngine(data)
             engine.extract(dir, zones)
+        messagebox.showinfo('Complete', message=f'Wrote {len(zones)} .vs3 file(s).')
 
     def update_create_objects(self):
         if not self.create_objects.get():

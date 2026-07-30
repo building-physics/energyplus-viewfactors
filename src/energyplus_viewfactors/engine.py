@@ -1,231 +1,201 @@
-"""@author: vyk
-Use: To create input for View3D program using *.epJSON file and then generate output from View3D program that can be written into another (to not replace the original file *.epJSON file as output
-                                                                                                                             Written to run using command prompt
-"""
-# =============================================================================
-# 
-# =============================================================================
+"""Translate EnergyPlus epJSON geometry into View3D .vs3 input files."""
+
+from __future__ import annotations
+
 import json
-import os
-from typing import TextIO, List
+from os import PathLike
+from pathlib import Path
+from typing import Any, TextIO
+
 
 class BadInputFile(Exception):
-    pass
+    """Raised when input is not valid EnergyPlus epJSON for this translator."""
+
 
 class ViewFactorEngine:
-    """An object that enables view factor calculation for EnergyPlus.
-    
-    This object specifies a range of elements and the side number that makes up an Exodus II side set.
+    """Load EnergyPlus epJSON data and write one View3D input per selected zone.
 
-    Parameters
-    ----------
-    obj:
-        EnergyPlus input data in dictionary form.
-    fp:
-        A file pointer (or equivalent) to JSON-formatted EnergyPlus input data.
-    filename:
-        The name of a file containing JSON-formatted EnergyPlus input data.
+    Args:
+        obj: EnergyPlus epJSON data as a dictionary.
+        fp: A readable text stream containing EnergyPlus epJSON data.
+        filename: A path to an EnergyPlus epJSON file.
     """
-    def __init__(self, obj:dict|None=None, fp:TextIO|None=None, filename:str|None=None):
-        self.data = {}
+
+    def __init__(
+        self,
+        obj: dict[str, Any] | None = None,
+        fp: TextIO | None = None,
+        filename: str | PathLike[str] | None = None,
+    ):
         if obj is not None:
             self.data = obj
         elif fp is not None:
             self.data = json.load(fp)
         elif filename is not None:
-            with open(filename, 'r') as inp:
-                self.data = json.load(inp)
-        # GlobalGeometryRules is required so it should be there
-        message = None
-        no_obj = False
+            with Path(filename).open(encoding="utf-8") as input_file:
+                self.data = json.load(input_file)
+        else:
+            self.data = {}
+
+        geometry_rules = self.data.get("GlobalGeometryRules")
+        if not geometry_rules:
+            source = f'Input file "{filename}"' if filename is not None else "Input data"
+            raise BadInputFile(
+                f'{source} does not have a "GlobalGeometryRules" object and is not valid '
+                "EnergyPlus epJSON."
+            )
+
+        global_geometry = next(iter(geometry_rules.values()))
         try:
-            glob_geom=self.data['GlobalGeometryRules']
-        except KeyError:
-            no_obj = True
-        if len(glob_geom) == 0:
-            no_obj = True
-        if no_obj:
-            if filename is not None:
-                raise BadInputFile(f'Input file "{filename}" does not have a "GlobalGeometryRules" object and is not a valid EnergyPlus input file.')
-            else:
-                raise BadInputFile('Input data does not have a "GlobalGeometryRules" object and is not valid EnergyPlus input.')
-        glob_geom = next(iter(glob_geom.values()))
+            self.ccw = global_geometry["vertex_entry_direction"] == "Counterclockwise"
+        except KeyError as error:
+            source = f'Input file "{filename}"' if filename is not None else "Input data"
+            raise BadInputFile(
+                f'{source} has a "GlobalGeometryRules" object without a '
+                '"vertex_entry_direction" entry.'
+            ) from error
 
-        try:
-            self.ccw = glob_geom['vertex_entry_direction'] == 'Counterclockwise'
-        except KeyError:
-            if filename is not None:
-                raise BadInputFile(f'Input file "{filename}" has a "GlobalGeometryRules" object that does not have "vertex_entry_direction" entry.')
-            else:
-                raise BadInputFile('Input data does not have a "GlobalGeometryRules" object that does not have "vertex_entry_direction" entry.')
-
-        self.zones = {}
-        try:
-            self.zones = self.data['Zone']
-        except KeyError:
-            pass
-
-        self.surfaces = {}
-        for el in ['BuildingSurface:Detailed']: # Need to add others
-            try:
-                self.surfaces.update(self.data[el])
-            except KeyError:
-                pass
-
-        self.subsurfaces = {}
-        for el in ['FenestrationSurface:Detailed']: # Need to add others?
-            try:
-                self.subsurfaces.update(self.data[el])
-            except KeyError:
-                pass
-
+        self.zones: dict[str, dict[str, Any]] = self.data.get("Zone", {})
+        self.surfaces: dict[str, dict[str, Any]] = dict(
+            self.data.get("BuildingSurface:Detailed", {})
+        )
+        self.subsurfaces: dict[str, dict[str, Any]] = dict(
+            self.data.get("FenestrationSurface:Detailed", {})
+        )
         self._assign_surfaces()
 
-    def _assign_surfaces(self):
-        """ This function assigns surfaces of each zone to zone list-In energy plus list of surfaces of a zone is not already stored in the zone object"""
-        for zone in self.zones:
-            self.zones[zone]["Surface"]=[]
-        
-        for surface in self.surfaces:
-            self.surfaces[surface]["Subsurface"]=[]
-            self.surfaces[surface]["Name"]=surface
-            zone_name=self.surfaces[surface]["zone_name"]
-            self.zones[zone_name]["Surface"].append(self.surfaces[surface])
-        
-        for subsurface in self.subsurfaces:
-            self.subsurfaces[subsurface]["Name"]=subsurface
-            surface_name=self.subsurfaces[subsurface]["building_surface_name"]
-            self.surfaces[surface_name]["Subsurface"].append(self.subsurfaces[subsurface])
+    def _assign_surfaces(self) -> None:
+        """Associate detailed surfaces and subsurfaces with their zones."""
+        for zone in self.zones.values():
+            zone["Surface"] = []
 
-    def _rev_cc(self, surface_vertices):
+        for name, surface in self.surfaces.items():
+            surface["Subsurface"] = []
+            surface["Name"] = name
+            zone_name = surface["zone_name"]
+            self.zones[zone_name]["Surface"].append(surface)
+
+        for name, subsurface in self.subsurfaces.items():
+            subsurface["Name"] = name
+            surface_name = subsurface["building_surface_name"]
+            self.surfaces[surface_name]["Subsurface"].append(subsurface)
+
+    def _reverse_if_needed(self, surface_vertices: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if self.ccw:
             surface_vertices.reverse()
         return surface_vertices
 
-    def extract(self, directory:str|None=None, zones:List[str]|None=None):
-        surf_dict={}
-        if zones is None:
-            zone_list = list(self.zones.keys())
-        else:
-            zone_list = [el for el in zones if el in self.zones]
+    def extract(
+        self,
+        directory: str | PathLike[str] | None = None,
+        zones: list[str] | None = None,
+    ) -> None:
+        """Write a .vs3 file for every selected zone."""
+        surface_numbers: dict[str, int] = {}
+        zone_names = list(self.zones) if zones is None else [z for z in zones if z in self.zones]
+        output_directory = Path(directory) if directory is not None else Path.cwd()
 
-        # Not sure what this does
-        #elif type(zones)==str:
-        #    Zone_list=dict((k,v) for k,v in Zone_list_all.items() if k==args.zone)
-    
-        if directory is None:
-            directory = '.'
+        for zone_name in zone_names:
+            vertices: list[list[Any]] = []
+            surfaces: list[list[Any]] = []
+            vertex_number = 1
+            surface_number = 1
 
-        for zone in zone_list: #iterate over each zone
-            Vertices=[];#X=[];Y=[];Z=[];S=[];
-            Surf=[]
-            i=1
-            j=1
-            for surface in self.zones[zone]["Surface"]: #iterate over surfaces of each zone
-                surf_dict[surface["Name"]]=j
-                surface["vertices"]=self._rev_cc(surface["vertices"]) #if vertex enetry is in counterclockwise reverse the vertices so it is clockwise taken by View3D program
-                Vertices,Surf,i,j=append_vertices(Vertices,surface,surface_list=Surf,i=i,j=j)
-                
-                """The parent/base surface should be defined before subsurface"""
-                if len(surface["Subsurface"])>0:
-                    for subsurface in surface["Subsurface"]:
-                        subsurface=get_ss_vert(subsurface)
-                        subsurface["vertices"]=self._rev_cc(  subsurface["vertices"])
-                        #surf_dict[subsurface["Name"]]=j
-                        Vertices,Surf,i,j=append_vertices(Vertices,surface=subsurface,surface_list=Surf,supersurface=surface,i=i,j=j)      
-                        
-            for ele in Surf:
-                if ele[6]!=0:
-                    ele[6]=surf_dict[ele[6]]
-            #return Vertices,Surf
+            for surface in self.zones[zone_name]["Surface"]:
+                surface_numbers[surface["Name"]] = surface_number
+                surface["vertices"] = self._reverse_if_needed(surface["vertices"])
+                vertices, surfaces, vertex_number, surface_number = append_vertices(
+                    vertices,
+                    surface,
+                    surface_list=surfaces,
+                    vertex_number=vertex_number,
+                    surface_number=surface_number,
+                )
+
+                for subsurface in surface["Subsurface"]:
+                    normalized_subsurface = get_subsurface_vertices(subsurface)
+                    normalized_subsurface["vertices"] = self._reverse_if_needed(
+                        normalized_subsurface["vertices"]
+                    )
+                    vertices, surfaces, vertex_number, surface_number = append_vertices(
+                        vertices,
+                        surface=normalized_subsurface,
+                        surface_list=surfaces,
+                        supersurface=surface,
+                        vertex_number=vertex_number,
+                        surface_number=surface_number,
+                    )
+
+            for surface in surfaces:
+                if surface[6] != 0:
+                    surface[6] = surface_numbers[surface[6]]
+
+            self._write_vs3(output_directory / f"{zone_name}.vs3", vertices, surfaces)
+
+    @staticmethod
+    def _write_vs3(
+        output_path: Path,
+        vertices: list[list[Any]],
+        surfaces: list[list[Any]],
+    ) -> None:
+        with output_path.open("w", encoding="utf-8", newline="\n") as output_file:
+            vertices.insert(0, ["!", "#", "x", "y", "z"])
+            for vertex in vertices:
+                output_file.write("".join(f"{value}\t" for value in vertex))
+                output_file.write("\n")
+
+            surfaces.insert(0, ["!", "#", "v1", "v2", "v3", "v4", "base", "cmb", "emit", "name"])
+            for surface in surfaces:
+                output_file.write("".join(f"{value}\t" for value in surface))
+                output_file.write("\n")
 
 
-    # =============================================================================
-    # 
-    # =============================================================================
-            vertices=Vertices
-            surfaces=Surf
-            #vertices, surfaces=get_vertices(Zone_list_all,zones=zone)
+def format_value(value: Any) -> str:
+    """Format a coordinate for View3D output."""
+    return f"{float(value):.2f}"
 
-    # =============================================================================
-    # Add vertices and surfaces in view 3D format
-    # =============================================================================
-            #if not os.path.exists(temp_folder):
-            #    os.makedirs(temp_folder)
-            #V3d_input=open(temp_folder+zone+"view3d.vs3","w")
-            with open(os.path.join(directory, zone+'.vs3'), 'w') as fp:
-                vertices.insert(0,["!","#","x","y","z"])
-                for ele in vertices:
-                    for eles in ele:
-                        fp.write("%s\t" %eles)
-                    fp.write("\n")   
-                
-                surfaces.insert(0,["!","#","v1","v2","v3","v4","base","cmb","emit","name"])
-                for ele in surfaces:
-                    for eles in ele:
-                        fp.write("%s\t" %eles)
-                    fp.write("\n")
-            
-            #fp.close()                        
 
-# =============================================================================
-# # Now put the results for the view factor in "ZoneProperty:UserViewFactors:bySurfaceName" object
-# =============================================================================
-
-def create_list(lst,delim=" "):
-    res = []
-    for el in lst:
-        sub = el.split(delim)
-        res.append(sub) 
-    return(res)
-
-# =============================================================================
-# 
-# =============================================================================
-def format1(value):
-    return "%.2f" % value
-
-def get_ss_vert(subsurface):
-    """This is to get the vertices of subsurface and assign it the format of surface vertices i.e. V={x,y,z} format """
-    subsurface["vertices"]=[]
-    for i in range(1,10):
-        if "vertex_"+str(i)+"_x_coordinate" in subsurface.keys():
-            subsurface["vertices"].append({"vertex_"+str(i)+"_x_coordinate":subsurface["vertex_"+str(i)+"_x_coordinate"],"vertex_"+str(i)+"_y_coordinate":subsurface["vertex_"+str(i)+"_y_coordinate"],"vertex_"+str(i)+"_z_coordinate":subsurface["vertex_"+str(i)+"_z_coordinate"]})
-        else:
+def get_subsurface_vertices(subsurface: dict[str, Any]) -> dict[str, Any]:
+    """Normalize epJSON subsurface vertex fields to the surface vertex layout."""
+    subsurface["vertices"] = []
+    for number in range(1, 10):
+        x_name = f"vertex_{number}_x_coordinate"
+        if x_name not in subsurface:
             break
+        subsurface["vertices"].append(
+            {
+                x_name: subsurface[x_name],
+                f"vertex_{number}_y_coordinate": subsurface[f"vertex_{number}_y_coordinate"],
+                f"vertex_{number}_z_coordinate": subsurface[f"vertex_{number}_z_coordinate"],
+            }
+        )
     return subsurface
-            
 
-# =============================================================================
-# Code below will get all the vertices of surface/sub-surface of selected zones and append it to a list
-# =============================================================================
-def append_vertices(vertices_list,surface,surface_list,supersurface=None,i=1,j=1): 
-    """append the vertices of the surface to the list "vertices_list" for the chosen 'surface' """
-    S=[]
-    for vertices in surface["vertices"]:
-        V=list(map(format1,vertices.values())) # List the name of the surface, index of the vertex and vertex co-ordinates for each vertices         
-        V.insert(0,i)
-        #V.insert(0,surface["Name"])
-        
-        if supersurface != None:
-            #V.append(supersurface["Name"])
-            #V.insert(0,supersurface["zone_name"])
-            V.insert(0,"V")
-        else:
-            #V.insert(0,surface["zone_name"])
-            V.insert(0,"V")
-        vertices_list.append(V)
-        S.append(i)
-        i=i+1
-    S.insert(0,j)   
-    S.insert(0,"S")
-    if supersurface != None:
-        S.append(supersurface["Name"])  
-    else:
-        S.append(0)
-    S.append(0)
-    S.append(0.5)
-    S.append(surface["Name"])    
-    surface_list.append(S)
-    j=j+1
-    return vertices_list,surface_list,i,j
+
+def append_vertices(
+    vertices_list: list[list[Any]],
+    surface: dict[str, Any],
+    surface_list: list[list[Any]],
+    supersurface: dict[str, Any] | None = None,
+    vertex_number: int = 1,
+    surface_number: int = 1,
+) -> tuple[list[list[Any]], list[list[Any]], int, int]:
+    """Append a surface's vertices and View3D surface record to output lists."""
+    vertex_references: list[Any] = []
+    for vertex in surface["vertices"]:
+        output_vertex: list[Any] = list(map(format_value, vertex.values()))
+        output_vertex.insert(0, vertex_number)
+        output_vertex.insert(0, "V")
+        vertices_list.append(output_vertex)
+        vertex_references.append(vertex_number)
+        vertex_number += 1
+
+    vertex_references.insert(0, surface_number)
+    vertex_references.insert(0, "S")
+    vertex_references.append(supersurface["Name"] if supersurface is not None else 0)
+    vertex_references.append(0)
+    vertex_references.append(0.5)
+    vertex_references.append(surface["Name"])
+    surface_list.append(vertex_references)
+    surface_number += 1
+    return vertices_list, surface_list, vertex_number, surface_number
