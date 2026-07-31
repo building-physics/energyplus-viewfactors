@@ -37,6 +37,14 @@ class ViewFactorEngine:
         else:
             self.data = {}
 
+        self.enclosed = True
+        self.surfaces_are_black = True
+        self.epsilon = 1.0e-4
+        self.maximum_unobstructed_recursions = 8
+        self.maximum_obstructed_recursions = 8
+        self.minimum_obstructed_recursions = 0
+        self.list = 2
+
         geometry_rules = self.data.get("GlobalGeometryRules")
         if not geometry_rules:
             source = f'Input file "{filename}"' if filename is not None else "Input data"
@@ -131,15 +139,26 @@ class ViewFactorEngine:
                 if surface[6] != 0:
                     surface[6] = surface_numbers[surface[6]]
 
-            self._write_vs3(output_directory / f"{zone_name}.vs3", vertices, surfaces)
+            self._write_vs3(output_directory / f"{zone_name}.vs3", vertices, surfaces,
+                            epsilon=self.epsilon, enclosed=self.enclosed,
+                            black_surfaces=self.surfaces_are_black,
+                            listing=self.list)
 
     @staticmethod
     def _write_vs3(
         output_path: Path,
         vertices: list[list[Any]],
         surfaces: list[list[Any]],
+        enclosed:bool=False,
+        black_surfaces:bool=True,
+        max_u:int=8,
+        max_o:int=8,
+        min_o:int=0,
+        listing:int=0,
+        epsilon:float=1.0e-4
     ) -> None:
         with output_path.open("w", encoding="utf-8", newline="\n") as output_file:
+            output_file.write(f"C  encl={int(enclosed)} list={listing} eps={epsilon} maxu={max_u} maxo={max_o} mino={min_o} emit={int(not black_surfaces)}\n")
             vertices.insert(0, ["!", "#", "x", "y", "z"])
             for vertex in vertices:
                 output_file.write("".join(f"{value}\t" for value in vertex))
