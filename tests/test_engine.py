@@ -25,7 +25,7 @@ def test_extract_writes_a_vs3_file(tmp_path, minimal_epjson: dict[str, Any]) -> 
     lines = output.splitlines()
     assert lines[0] == "C  encl=1 list=2 eps=0.0001 maxu=8 maxo=8 mino=0 emit=0"
     assert lines[1] == "!\t#\tx\ty\tz\t"
-    assert "V\t1\t0.00\t0.00\t0.00\t\n" in output
+    assert "V\t1\t0.0\t0.0\t0.0\t\n" in output
     assert "S\t1\t1\t2\t3\t4\t0\t0\t0.5\tTest Surface\t\n" in output
 
 
