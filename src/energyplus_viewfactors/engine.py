@@ -77,7 +77,7 @@ class ViewFactorEngine:
         for zone in self.zones.values():
             zone["Surface"] = []
 
-        lookup = {key.upper() : key for key in self.zones.keys()}
+        lookup = {key.upper(): key for key in self.zones.keys()}
         for name, surface in self.surfaces.items():
             surface["Subsurface"] = []
             surface["Name"] = name
@@ -139,26 +139,33 @@ class ViewFactorEngine:
                 if surface[6] != 0:
                     surface[6] = surface_numbers[surface[6]]
 
-            self._write_vs3(output_directory / f"{zone_name}.vs3", vertices, surfaces,
-                            epsilon=self.epsilon, enclosed=self.enclosed,
-                            black_surfaces=self.surfaces_are_black,
-                            listing=self.list)
+            self._write_vs3(
+                output_directory / f"{zone_name}.vs3",
+                vertices,
+                surfaces,
+                epsilon=self.epsilon,
+                enclosed=self.enclosed,
+                black_surfaces=self.surfaces_are_black,
+                listing=self.list,
+            )
 
     @staticmethod
     def _write_vs3(
         output_path: Path,
         vertices: list[list[Any]],
         surfaces: list[list[Any]],
-        enclosed:bool=False,
-        black_surfaces:bool=True,
-        max_u:int=8,
-        max_o:int=8,
-        min_o:int=0,
-        listing:int=0,
-        epsilon:float=1.0e-4
+        enclosed: bool = False,
+        black_surfaces: bool = True,
+        max_u: int = 8,
+        max_o: int = 8,
+        min_o: int = 0,
+        listing: int = 0,
+        epsilon: float = 1.0e-4,
     ) -> None:
         with output_path.open("w", encoding="utf-8", newline="\n") as output_file:
-            output_file.write(f"C  encl={int(enclosed)} list={listing} eps={epsilon} maxu={max_u} maxo={max_o} mino={min_o} emit={int(not black_surfaces)}\n")
+            output_file.write(
+                f"C  encl={int(enclosed)} list={listing} eps={epsilon} maxu={max_u} maxo={max_o} mino={min_o} emit={int(not black_surfaces)}\n"
+            )
             vertices.insert(0, ["!", "#", "x", "y", "z"])
             for vertex in vertices:
                 output_file.write("".join(f"{value}\t" for value in vertex))
