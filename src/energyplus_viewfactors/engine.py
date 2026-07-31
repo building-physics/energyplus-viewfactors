@@ -172,7 +172,9 @@ class ViewFactorEngine:
 
 def format_value(value: Any) -> str:
     """Format a coordinate for View3D output."""
-    return f"{float(value):.2f}"
+    if isinstance(value, str):
+        return value
+    return f"{float(value)}"
 
 
 def get_subsurface_vertices(subsurface: dict[str, Any]) -> dict[str, Any]:

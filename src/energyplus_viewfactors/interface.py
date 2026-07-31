@@ -192,21 +192,22 @@ class EnergyPlusViewFactors(Tk):
 
         self.run_view3d = BooleanVar()
         self.run_view3d.set(False)
-        Checkbutton(settings, text='Run View3D', variable=self.run_view3d).grid(column=0, row=0, sticky=EW)
+        Checkbutton(settings, text='Run View3D', variable=self.run_view3d, state=DISABLED).grid(column=0, row=0, sticky=EW)
 
         self.create_objects = BooleanVar()
         self.create_objects.set(False)
         Checkbutton(settings, text='Create EnergyPlus objects', variable=self.create_objects,
-                    command=self.update_create_objects).grid(column=0, row=1, sticky=EW)
+                    command=self.update_create_objects, state=DISABLED).grid(column=0, row=1, sticky=EW)
         
         self.add_objects = BooleanVar()
         self.add_objects.set(False)
-        Checkbutton(settings, text='Add EnergyPlus objects to epJSON', variable=self.add_objects).grid(column=0, row=2, sticky=EW)
+        Checkbutton(settings, text='Add EnergyPlus objects to epJSON', variable=self.add_objects,
+                    state=DISABLED).grid(column=0, row=2, sticky=EW)
 
         self.save_intermediates = BooleanVar()
         self.save_intermediates.set(True)
         Checkbutton(settings, text='Save intermediate files', variable=self.save_intermediates,
-                    command=self.update_save_intermediates).grid(column=0, row=3, sticky=EW)
+                    command=self.update_save_intermediates, state=DISABLED).grid(column=0, row=3, sticky=EW)
 
         settings.columnconfigure(0, weight=1)
 
