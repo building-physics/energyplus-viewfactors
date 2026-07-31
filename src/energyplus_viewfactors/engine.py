@@ -69,11 +69,12 @@ class ViewFactorEngine:
         for zone in self.zones.values():
             zone["Surface"] = []
 
+        lookup = {key.upper() : key for key in self.zones.keys()}
         for name, surface in self.surfaces.items():
             surface["Subsurface"] = []
             surface["Name"] = name
             zone_name = surface["zone_name"]
-            self.zones[zone_name]["Surface"].append(surface)
+            self.zones[lookup[zone_name.upper()]]["Surface"].append(surface)
 
         for name, subsurface in self.subsurfaces.items():
             subsurface["Name"] = name
