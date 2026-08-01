@@ -18,7 +18,18 @@ ruff check --fix --force-exclude !PYFILES! || goto :failed
 echo Formatting Python files...
 ruff format --force-exclude !PYFILES! || goto :failed
 
-echo Quality fixes completed.
+set "TYPEFILES="
+for /F "delims=" %%F in ('git ls-files "*.py" ^| findstr /B /C:"src/energyplus_viewfactors/" /C:"tests/"') do set "TYPEFILES=!TYPEFILES! "%%F""
+
+if not defined TYPEFILES (
+    echo No tracked package or test Python files were found.
+    goto :failed
+)
+
+echo Checking types...
+mypy !TYPEFILES! || goto :failed
+
+echo Quality fixes and type checks completed.
 popd
 exit /b 0
 

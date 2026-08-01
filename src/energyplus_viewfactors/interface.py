@@ -54,7 +54,9 @@ class EnergyPlusViewFactors(Tk):
         # Load the icon
         if system() == 'Windows':
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"{self.name()}.{__version__}")
+            windll = getattr(ctypes, 'windll', None)
+            if windll is not None:
+                windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"{self.name()}.{__version__}")
             with importlib.resources.path('energyplus_viewfactors.data', 'eplus.ico') as icon_path:
                 if icon_path.exists():
                     self.iconbitmap(icon_path)
